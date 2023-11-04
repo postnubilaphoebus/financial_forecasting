@@ -3,9 +3,16 @@ import torchvision
 from torch import nn
 import sys
 import cv2
-from PIL import Image
 import numpy as np
 from cnn import five_day_cnn
+
+def load_stock_images(path):
+
+    
+
+    return stock_images
+
+
  
 #Load the image
 image = cv2.imread("20_days_num_120_up.png")
@@ -18,14 +25,3 @@ image = torchvision.transforms.functional.rgb_to_grayscale(image)
 model = five_day_cnn().double()
 x = model.forward(image)
 print("x", x)
-
-
- 
-# # Display the image
-# cv2.imshow("Image", image)
- 
-# # Wait for the user to press a key
-# cv2.waitKey(0)
- 
-# # Close all windows
-# cv2.destroyAllWindows()
