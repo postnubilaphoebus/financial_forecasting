@@ -34,15 +34,19 @@ class five_day_cnn(nn.Module):
 
         self.batch_norm3 = nn.BatchNorm2d(256)
 
-
-        self.fc = nn.Linear(46080, 2)
+        self.fc = nn.Linear(46080, 1)
         self.dropout = nn.Dropout(0.5)
         self.max_pool = nn.MaxPool2d((2, 1), stride=(2, 1))
         self.leaky_relu = nn.LeakyReLU()
-        self.softmax = nn.Softmax(dim = -1)
+
+    def init_weights(self):
+        if isinstance(self, nn.Conv2d):
+            torch.nn.init.xavier_uniform_(self.weight)
+            self.bias.data.fill_(0.01)       
+        else:
+            pass
 
     def forward(self, x):
-        x = x.unsqueeze(0)
         x = self.leaky_relu(self.batch_norm1(self.conv_layer1(x)))
         x = self.max_pool(x)
         x = self.leaky_relu(self.batch_norm2(self.conv_layer2(x)))
@@ -52,5 +56,4 @@ class five_day_cnn(nn.Module):
         x = self.dropout(x)
         x = torch.flatten(x, 1, -1)
         x = self.fc(x)
-        x = self.softmax(x)
         return x

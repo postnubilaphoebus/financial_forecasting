@@ -3,6 +3,17 @@ import numpy as np
 import math, cv2
 import os
 from tqdm import tqdm
+import random
+
+def future_trend(df, idx, n_days):
+    cur_val = df.Close[idx]
+    future_val = df.Close[idx + n_days]
+    if cur_val < future_val:
+        return "_up"
+    elif cur_val == future_val:
+        return "_same"
+    else:
+        return "_down"
 
 def flag_old_years(date_in_some_format):
     date_as_string = str(date_in_some_format)  # cast to string
@@ -17,6 +28,7 @@ def write_n_day_images(df, n_days = 20, img_height = 64, path = "None", acronym 
     df.index = df.index.map(flag_old_years)
     df = df.drop(df[df.index == "too_old"].index)
     df.index = range(len(df))
+    num_images = len(df)
     i = 0
     open_ = [] 
     high_ = []
@@ -24,8 +36,13 @@ def write_n_day_images(df, n_days = 20, img_height = 64, path = "None", acronym 
     close_ = []
     volume_ = []
     moving_average = []
-
     past_n_closes = []
+
+    figure_names = []
+    images = []
+    labels = []
+
+    # generate images
     for index, row in tqdm(df.iterrows()):
         # SMA = average closing price
         if index < n_days:
@@ -34,23 +51,62 @@ def write_n_day_images(df, n_days = 20, img_height = 64, path = "None", acronym 
         high_.append(row.High)
         low_.append(row.Low)
         close_.append(row.Close)
-        volume_.append(row.Volume)
+        volume_.append(row.Volume)           
         i += 1
         if i % n_days == 0:
+            if index + n_days < num_images:
+                trend = future_trend(df, index, n_days)
+            else:
+                return
             i = 0
             stock_image = generate_img_from_list(open_, high_, low_, close_, volume_, img_height, past_n_closes)
             stock_image = np.transpose(stock_image, (2, 1, 0))
             img = cv2.merge((stock_image[2], stock_image[1], stock_image[0]))
-            fig_name = str(n_days) + "_days_" + acronym + "_num_" + str(index - n_days + 1) + ".png"
+            fig_name = str(n_days) + "_days_" + acronym + "_num_" + str(index - n_days + 1) + trend + ".png"
+            #############################
+            figure_names.append(fig_name)
+            images.append(img)
+            labels.append(trend)
+            ###
             img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
             fig_name = os.path.join(path, fig_name)
             cv2.imwrite(fig_name, img)
+            ###
             past_n_closes = close_
             open_ = [] 
             high_ = []
             low_ = []
             close_ = []
             volume_ = []
+
+    # write images
+    c = list(zip(figure_names, images, labels))
+    random.shuffle(c)
+    figure_names, images, labels = zip(*c)
+    num_upwards = labels.count("up")
+    num_downwards = len(labels) - num_upwards
+    labels = [0 if x == "up" else (1 if x == "down" else -1) for x in labels]
+    if num_upwards < num_downwards:
+        # delete downward
+        num_diff = num_downwards - num_upwards
+        indices = [i for i, x in enumerate(labels) if x == 0]
+        indices = indices[:num_diff]
+        figure_names = [item for i, item in enumerate(figure_names) if i not in indices]
+        images = [item for i, item in enumerate(images) if i not in indices]
+    elif num_upwards > num_downwards:
+        # delete upward
+        num_diff = num_upwards - num_downwards
+        indices = [i for i, x in enumerate(labels) if x == 1]
+        indices = indices[:num_diff]
+        figure_names = [item for i, item in enumerate(figure_names) if i not in indices]
+        images = [item for i, item in enumerate(images) if i not in indices]
+    else:
+        pass
+
+    for img, fig_name in zip(images, figure_names):
+        img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        fig_name = os.path.join(path, fig_name)
+        cv2.imwrite(fig_name, img)
 
 def generate_img_from_list(open_, high_, low_, close_, volume_, img_height, past_n_closes):
     n_days = len(open_)

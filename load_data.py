@@ -77,8 +77,6 @@ nasdaq = ["ADBE",
           "ZM",
           "ZS"]
 
-
-
 current_path = os.getcwd()
 new_path = os.path.join(current_path, "data")
 
@@ -89,14 +87,7 @@ for acronym in tqdm(nasdaq):
     hist = yf.Ticker(acronym).history(period = "max")
     write_n_day_images(hist, 20, 64, new_path, acronym)
 
-msft = yf.Ticker("AAPL")
-
-# get historical market data
-hist = msft.history(period= "max")
-
-print("type(hist)", type(hist))
-
-print("hist", hist)
+print("Done")
 
 
 
