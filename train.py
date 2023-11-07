@@ -79,8 +79,14 @@ new_path = os.path.join(current_path, "data")
 learning_rate = 1e-5
 batch_size = 128
 num_epochs = 10
-validation_size = 1024
-loss_fn = torch.nn.BCEWithLogitsLoss( reduction='mean')
+validation_size = 10240
+
+parameters_dict = {"learning_rate": learning_rate, 
+                   "batch_size": batch_size, 
+                   "num_epochs": num_epochs, 
+                   "validation_size": validation_size}
+
+loss_fn = torch.nn.BCEWithLogitsLoss(reduction='mean')
 model = five_day_cnn().double()
 model = model.apply(five_day_cnn.init_weights)
 optim = torch.optim.Adam(model.parameters(), lr=learning_rate)
@@ -153,5 +159,11 @@ used_validation_names = "used_validation_names.txt"
 with open(used_validation_names, "w") as file:
     for name in validation_file_names:
         file.write(f"{name}\n")
+
+parameters_file = "parameters.txt"
+
+with open(parameters_file, "w") as file:
+    for key, value in parameters_dict.items():
+        file.write(f"{key}: {value}\n")
 
 conn.close()
