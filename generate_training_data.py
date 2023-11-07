@@ -4,6 +4,7 @@ import math, cv2
 import os
 from tqdm import tqdm
 import random
+import time
 
 def future_trend(df, idx, n_days):
     cur_val = df.Close[idx]
@@ -24,9 +25,10 @@ def flag_old_years(date_in_some_format):
         return date_as_string
 
 def write_n_day_images(df, n_days = 20, img_height = 64, path = "None", acronym = "text"):
+
     df.index = pd.to_datetime(df.index, format = '%m/%d/%Y').strftime('%Y-%m-%d')
     df.index = df.index.map(flag_old_years)
-    df = df.drop(df[df.index == "too_old"].index)
+    df = df[df.index != "too_old"]
     df.index = range(len(df))
     num_images = len(df)
     i = 0
@@ -57,28 +59,31 @@ def write_n_day_images(df, n_days = 20, img_height = 64, path = "None", acronym 
             if index + n_days < num_images:
                 trend = future_trend(df, index, n_days)
             else:
-                return
+                break
             i = 0
+
             stock_image = generate_img_from_list(open_, high_, low_, close_, volume_, img_height, past_n_closes)
-            stock_image = np.transpose(stock_image, (2, 1, 0))
-            img = cv2.merge((stock_image[2], stock_image[1], stock_image[0]))
-            fig_name = str(n_days) + "_days_" + acronym + "_num_" + str(index - n_days + 1) + trend + ".png"
-            #############################
-            figure_names.append(fig_name)
-            images.append(img)
-            labels.append(trend)
-            ###
-            img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-            fig_name = os.path.join(path, fig_name)
-            cv2.imwrite(fig_name, img)
-            ###
-            past_n_closes = close_
+
+            if stock_image.size > 0:
+                stock_image = np.transpose(stock_image, (2, 1, 0))
+                img = cv2.merge((stock_image[2], stock_image[1], stock_image[0]))
+                fig_name = str(n_days) + "_days_" + acronym + "_num_" + str(index - n_days + 1) + trend + ".png"
+                figure_names.append(fig_name)
+                images.append(img)
+                labels.append(trend)
+                past_n_closes = close_
+            else:
+                past_n_closes = None
+
             open_ = [] 
             high_ = []
             low_ = []
             close_ = []
             volume_ = []
 
+    if not images:
+        return
+    
     # write images
     c = list(zip(figure_names, images, labels))
     random.shuffle(c)
@@ -108,15 +113,25 @@ def write_n_day_images(df, n_days = 20, img_height = 64, path = "None", acronym 
         fig_name = os.path.join(path, fig_name)
         cv2.imwrite(fig_name, img)
 
+
 def generate_img_from_list(open_, high_, low_, close_, volume_, img_height, past_n_closes):
     n_days = len(open_)
     moving_averages = []
-    for i in range(len(close_)):
-        moving_averages.append(sum(past_n_closes[i:] + close_[:i]) / n_days)
-    
+    if past_n_closes:
+        for i in range(len(close_)):
+            moving_averages.append(sum(past_n_closes[i:] + close_[:i]) / n_days)
+    else:
+        for i in range(len(close_)):
+            moving_averages.append(-1)
+        
     vol_height = round(img_height * (5/4)) - img_height
-    max_price = max(high_ + moving_averages)
-    min_price = min(low_ + moving_averages)
+    if past_n_closes:
+        max_price = max(high_ + moving_averages + open_ + close_ + past_n_closes)
+        min_price = min(low_ + moving_averages + open_ + close_ + past_n_closes)
+    else:
+        max_price = max(high_ + open_ + close_)
+        min_price = min(low_ + open_ + close_)
+
     max_volume = max(volume_)
     min_volume = min(volume_)
     price_range = max_price - min_price
@@ -129,32 +144,68 @@ def generate_img_from_list(open_, high_, low_, close_, volume_, img_height, past
     idx = 0
     past_moving_averages = []
     moving_average_pixel_list = []
+
+    open_naan = len([0 for x in open_ if math.isnan(x)])
+    close_naan = len([0 for x in close_ if math.isnan(x)])
+    low_naan = len([0 for x in low_ if math.isnan(x)])
+    high_naan = len([0 for x in high_ if math.isnan(x)])
+    naan_bread = [open_naan, close_naan, low_naan, high_naan]
+    max_amount_of_naan_bread = max(naan_bread)
+
     for o, h, l, c, v, ma in zip(open_, high_, low_, close_, volume_, moving_averages):
-        moving_average_pixel = round((ma - min_price) / price_range * (img_height-1))
-        moving_average_pixel_list.append(moving_average_pixel)
+
+        if price_range <= 0 or volume_range <= 0 or max_amount_of_naan_bread > 1:
+            empty_array = []
+            return np.asarray(empty_array)
+        
+        check_naan_bread = [o, h, l, c, v, ma]
+        if len([0 for x in check_naan_bread if math.isnan(x)]) > 0:
+            continue
+        
+        if moving_averages[0] > -1:
+            moving_average_pixel = round((ma - min_price) / price_range * (img_height-1))
+            moving_average_pixel_list.append(moving_average_pixel)
+
         open_pxl = round((o - min_price) / price_range * (img_height-1))
         close_pxl = round((c - min_price) / price_range * (img_height-1))
         vertical_bar_first_pxl = round((l - min_price) / price_range * (img_height-1))
         vertical_bar_last_pxl = round((h - min_price) / price_range * (img_height-1))
         volume_pxl = round((v - min_volume) / volume_range * (vol_height-1))
+                
         black_image_price[open_pxl, 3*idx].fill(255)
-        black_image_price[moving_average_pixel, 3*idx+1].fill(255)
-        for inner_idx in range(vertical_bar_last_pxl - vertical_bar_first_pxl):
-            black_image_price[vertical_bar_first_pxl + inner_idx, 3*idx+1].fill(255)
+        if moving_averages[0] > -1:
+            black_image_price[moving_average_pixel, 3*idx+1].fill(255)
+
+        if vertical_bar_last_pxl - vertical_bar_first_pxl > 0:
+            for inner_idx in range(vertical_bar_last_pxl - vertical_bar_first_pxl):
+                black_image_price[vertical_bar_first_pxl + inner_idx, 3*idx+1].fill(255)
+        elif vertical_bar_last_pxl - vertical_bar_first_pxl == 0:
+            black_image_price[vertical_bar_last_pxl, 3*idx+1].fill(255)
+        else:
+            pass
+
         black_image_price[close_pxl, 3*idx+2].fill(255)
-        for inner_idx_2 in range(volume_pxl):
-            black_image_volume[inner_idx_2, 3*idx].fill(255)
+
+        if volume_pxl > 0:
+            for inner_idx_2 in range(volume_pxl):
+                black_image_volume[inner_idx_2, 3*idx].fill(255)
+        elif volume_pxl == 0:
+            black_image_volume[0, 3*idx].fill(255)
+        else:
+            pass
+
         idx += 1
 
-    past_pixel = moving_average_pixel_list[0]
-    for i in range(len(moving_average_pixel_list)-1):
-        current_pixel = moving_average_pixel_list[i]
-        future_pixel = moving_average_pixel_list[i+1]
-        first_column_pixel = round((current_pixel + past_pixel) / 2)
-        last_column_pixel =  round((future_pixel + current_pixel) / 2)
-        black_image_price[first_column_pixel, 3*i].fill(255)
-        black_image_price[last_column_pixel, 3*i+2].fill(255)
-        past_pixel = current_pixel
+    if moving_averages[0] > -1:
+        past_pixel = moving_average_pixel_list[0]
+        for i in range(len(moving_average_pixel_list)-1):
+            current_pixel = moving_average_pixel_list[i]
+            future_pixel = moving_average_pixel_list[i+1]
+            first_column_pixel = round((current_pixel + past_pixel) / 2)
+            last_column_pixel =  round((future_pixel + current_pixel) / 2)
+            black_image_price[first_column_pixel, 3*i].fill(255)
+            black_image_price[last_column_pixel, 3*i+2].fill(255)
+            past_pixel = current_pixel
     full_stock_image = np.concatenate((black_image_volume, black_image_price), axis = 0)
 
     return full_stock_image
