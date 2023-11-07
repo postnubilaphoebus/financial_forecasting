@@ -141,11 +141,17 @@ for epoch in tqdm(range(num_epochs)):
             break
 
 # Specify the file path where you want to save the list
-file_path = "loss.txt"
+loss_file = "loss.txt"
 
 # Open the file in write mode
-with open(file_path, 'w') as file:
+with open(loss_file, 'w') as file:
     for train, val in zip(train_loss_list, val_loss_list):
         file.write(f"{train}, {val}\n")
+
+used_validation_names = "used_validation_names.txt"
+
+with open(used_validation_names, "w") as file:
+    for name in validation_file_names:
+        file.write(f"{name}\n")
 
 conn.close()
