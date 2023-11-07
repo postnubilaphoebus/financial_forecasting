@@ -71,9 +71,6 @@ np.random.seed(0)
 # Data loading
 current_path = os.getcwd()
 new_path = os.path.join(current_path, "data")
-#images, image_targets = load_stock_images(new_path)
-#train_data, val_data = images[640:], images[:640]
-#train_labels, val_labels = image_targets[640:], image_targets[:640]
 
 # Training loop
 learning_rate = 1e-5
@@ -86,8 +83,10 @@ parameters_dict = {"learning_rate": learning_rate,
                    "num_epochs": num_epochs, 
                    "validation_size": validation_size}
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 loss_fn = torch.nn.BCEWithLogitsLoss(reduction='mean')
-model = five_day_cnn().double()
+model = five_day_cnn().double().to(device)
 model = model.apply(five_day_cnn.init_weights)
 optim = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
@@ -116,6 +115,7 @@ for epoch in tqdm(range(num_epochs)):
 
     for data_name_batch in yield_data_names(train_filenames, batch_size):
         images, targets = read_img_tgt(data_name_batch, new_path)
+        images, targets = images.to(device), targets.to(device)
         optim.zero_grad()
         pred = model.forward(images)
         loss = loss_fn(pred.squeeze(), targets)
@@ -127,6 +127,7 @@ for epoch in tqdm(range(num_epochs)):
 
     for data_name_batch in yield_data_names(validation_file_names, batch_size):
         images, targets = read_img_tgt(data_name_batch, new_path)
+        images, targets = images.to(device), targets.to(device)
         pred = model.forward(images)
         loss = loss_fn(pred.squeeze(), targets)
         temp_val_loss.append(loss.item())
