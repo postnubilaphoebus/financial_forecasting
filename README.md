@@ -1,5 +1,6 @@
 # financial_forecasting
-Trying out some methods for financial forecasting <br> <br>
+Trying out some methods for financial forecasting <br> 
+Implementation of the paper: Jiang, J., Kelly, B. T., & Xiu, D. (2020). (Re-)Imag(in)ing price trends. Chicago Booth Research Paper, (21-01) <br> <br>
 
 # Installation guide: <br> <br> 
 
