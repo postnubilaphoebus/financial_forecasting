@@ -11,6 +11,9 @@ from os.path import isfile, join
 import random
 from tqdm import tqdm
 import sqlite3
+import math
+from utils import weight_init, hyperparam_optim, iterate_dict
+import json
 
 def fetch_data(cursor, batch_size, offset):
     cursor.execute(f'''
@@ -75,7 +78,7 @@ new_path = os.path.join(current_path, "data")
 # Training loop
 learning_rate = 1e-5
 batch_size = 128
-num_epochs = 10
+num_epochs = 5
 validation_size = 10240
 
 parameters_dict = {"learning_rate": learning_rate, 
@@ -86,10 +89,6 @@ parameters_dict = {"learning_rate": learning_rate,
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 loss_fn = torch.nn.BCEWithLogitsLoss(reduction='mean')
-model = five_day_cnn().double().to(device)
-model = model.apply(five_day_cnn.init_weights)
-optim = torch.optim.Adam(model.parameters(), lr=learning_rate)
-
 train_loss_list = []
 val_loss_list = []
 
@@ -98,73 +97,112 @@ cursor = conn.cursor()
 cursor.execute('SELECT file_name FROM file_attributes')
 all_filenames = [row[0] for row in cursor.fetchall()]
 total_data_size = len(all_filenames)
-random.shuffle(all_filenames)
+current_directory = os.getcwd()
+save_model_dir = os.path.join(current_directory, r'saved_models')
+if not os.path.exists(save_model_dir):
+    os.makedirs(save_model_dir)
 
-for epoch in tqdm(range(num_epochs)):
+########### Hyperparameter dictionary ############
+hyperparameters_dict = {"learning_rate": [1e-4, 1e-5, 1e-6],
+                        "dropout": [0.4, 0.5, 0.6],
+                        "weight_init_type": ["orthogonal", "xavier", "kaiming"]}
+##################################################
 
-    temp_train_loss = []
-    temp_val_loss = []
+gridsearchtype = "exhaustive" #or "random"
+max_iters = math.prod([len(sub) for sub in list(hyperparameters_dict.values())])
+num_iters = 10
 
-    # Shuffle the filenames before each epoch
-    if validation_size < total_data_size:
-        train_filenames = all_filenames[validation_size:]
-        random.shuffle(train_filenames)
-        validation_file_names = all_filenames[:validation_size]
+if gridsearchtype == "random" and num_iters < max_iters:
+    best_loss = float('inf')
+    for _ in tqdm(range(num_iters)):
 
-    model.train()
+        if validation_size < total_data_size:
+            train_filenames = all_filenames[validation_size:]
+            random.shuffle(train_filenames)
+            validation_file_names = all_filenames[:validation_size]
 
-    for data_name_batch in yield_data_names(train_filenames, batch_size):
-        images, targets = read_img_tgt(data_name_batch, new_path)
-        images, targets = images.to(device), targets.to(device)
-        optim.zero_grad()
-        pred = model.forward(images)
-        loss = loss_fn(pred.squeeze(), targets)
-        loss.backward()
-        optim.step()
-        temp_train_loss.append(loss.item())
+        lr = random.sample(hyperparameters_dict.get("learning_rate"))
+        dropout = random.sample(hyperparameters_dict.get("dropout"))
+        weight_init_type = random.sample(hyperparameters_dict.get("weight_init_type"))
+        model = five_day_cnn(dropout).double().to(device)
+        optim = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        if weight_init_type ==  "orthogonal":
+            model = model.apply(five_day_cnn.orthogonal_init)
+        elif weight_init_type ==  "xavier":
+            model = model.apply(five_day_cnn.xavier_init)
+        elif weight_init_type ==  "kaiming":
+            model = model.apply(five_day_cnn.kaiming_init)
+        else:
+            pass
 
-    model.eval()
+        parameters_dict = {"learning_rate": lr}
+        best_loss = hyperparam_optim(optim, 
+                                     loss_fn, 
+                                     train_filenames, 
+                                     validation_file_names, 
+                                     num_epochs, 
+                                     model, 
+                                     parameters_dict, 
+                                     save_model_dir, 
+                                     best_loss,
+                                     batch_size,
+                                     device,
+                                     new_path)
+        
+        params_list = [lr, dropout, weight_init_type, best_loss]
+        
+        with open('hyperparams.txt', 'a') as f:
+            json.dump(params_list, f)
 
-    for data_name_batch in yield_data_names(validation_file_names, batch_size):
-        images, targets = read_img_tgt(data_name_batch, new_path)
-        images, targets = images.to(device), targets.to(device)
-        pred = model.forward(images)
-        loss = loss_fn(pred.squeeze(), targets)
-        temp_val_loss.append(loss.item())
+elif gridsearchtype == "exhaustive":
+    best_loss = float('inf')
 
-    train_loss_list.append(sum(temp_train_loss) / len(temp_train_loss))
-    val_loss_list.append(sum(temp_val_loss) / len(temp_val_loss))
+    for params_dict in iterate_dict(hyperparameters_dict):
 
-    print("val loss epoch", val_loss_list[-1])
-    print("train loss epoch", train_loss_list[-1])
+        if validation_size < total_data_size:
+            train_filenames = all_filenames[validation_size:]
+            random.shuffle(train_filenames)
+            validation_file_names = all_filenames[:validation_size]
 
-    if epoch > 1:
-        last_three_epochs = sum(val_loss_list[-2:]) / 2
-        three_epochs_ago = val_loss_list[-3]
-        if last_three_epochs > three_epochs_ago:
-            save_model(model)
-            print("train_loss_list", train_loss_list)
-            print("val_loss_list", val_loss_list)
-            break
+        lr = params_dict.get("learning_rate")
+        dropout = params_dict.get("dropout")
+        weight_init_type = params_dict.get("weight_init_type")
 
-# Specify the file path where you want to save the list
-loss_file = "loss.txt"
-
-# Open the file in write mode
-with open(loss_file, 'w') as file:
-    for train, val in zip(train_loss_list, val_loss_list):
-        file.write(f"{train}, {val}\n")
+        model = five_day_cnn(dropout).double().to(device)
+        optim = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        if weight_init_type ==  "orthogonal":
+            model = model.apply(five_day_cnn.orthogonal_init)
+        elif weight_init_type ==  "xavier":
+            model = model.apply(five_day_cnn.xavier_init)
+        elif weight_init_type ==  "kaiming":
+            model = model.apply(five_day_cnn.kaiming_init)
+        else:
+            pass
+        parameters_dict = {"learning_rate": lr}
+        best_loss = hyperparam_optim(optim, 
+                                     loss_fn, 
+                                     train_filenames, 
+                                     validation_file_names, 
+                                     num_epochs,
+                                     model, 
+                                     parameters_dict, 
+                                     save_model_dir, 
+                                     best_loss,
+                                     batch_size,
+                                     device,
+                                     new_path)
+        
+        params_list = [lr, dropout, weight_init_type, best_loss]
+        
+        with open('hyperparams.txt', 'a') as f:
+            json.dump(params_list, f)
+else:
+    pass
 
 used_validation_names = "used_validation_names.txt"
 
 with open(used_validation_names, "w") as file:
     for name in validation_file_names:
         file.write(f"{name}\n")
-
-parameters_file = "parameters.txt"
-
-with open(parameters_file, "w") as file:
-    for key, value in parameters_dict.items():
-        file.write(f"{key}: {value}\n")
 
 conn.close()

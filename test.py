@@ -114,6 +114,10 @@ model = load_model(model).to(device)
 # down = 1, up = 0
 hits = []
 
+model.eval()
+
+import pdb; pdb.set_trace()
+
 for data_name_batch in tqdm(yield_data_names(validation_file_names, batch_size)):
     images, targets = read_img_tgt(data_name_batch, data_path)
     images, targets = images.to(device), targets.to(device)
